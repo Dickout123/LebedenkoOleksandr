@@ -1,42 +1,133 @@
-package com.example.servletdemo;
+package com.example.servletdemo; // Цей пакет повинен відповідати пакету сервісу
 
-import jakarta.servlet.*;
-import jakarta.servlet.http.*;
-import jakarta.servlet.annotation.*;
-import java.io.IOException;
-import java.util.Arrays;
-import java.util.List;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.util.List;
+import java.util.Optional;
 
-@WebServlet("/api/smartphones")
+// Анотація змінена, щоб обробляти запити з ID в URL (наприклад, /api/smartphones/123)
+@WebServlet("/api/smartphones/*")
 public class SmartphoneServlet extends HttpServlet {
+
+    // Створюємо екземпляр сервісу. Помилка "may be 'final'" - це лише попередження,
+    // що його можна зробити final, оскільки він не змінюється. Можна ігнорувати.
+    private SmartphoneService smartphoneService = new SmartphoneService();
+    private Gson gson = new GsonBuilder().setPrettyPrinting().create();
+
+    // Обробка GET-запитів (отримання списку або одного смартфона)
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
-
-        List<Smartphone> smartphones = Arrays.asList(
-                // Використовуємо наявні фото та додаємо нові телефони
-                new Smartphone("Galaxy S23", "s23.jpg", "Флагман Samsung з потужною камерою", 999.99, "Samsung"),
-                new Smartphone("iPhone 15", "iphone15.jpg", "Новий iPhone з покращеним процесором", 1099.99, "Apple"),
-                new Smartphone("Pixel 7", "pixel7.jpg", "Google телефон з чистим Android", 799.99, "Google"),
-
-                // Додаємо нові телефони, декілька з яких використовують існуючі фото
-                new Smartphone("Galaxy A54", "s23.jpg", "Середньобюджетний телефон Samsung", 499.99, "Samsung"), // Використовує s23.jpg
-                new Smartphone("iPhone 13 mini", "iphone15.jpg", "Компактний iPhone", 699.99, "Apple"), // Використовує iphone15.jpg
-                new Smartphone("Pixel 6a", "pixel7.jpg", "Доступний Pixel з чудовою камерою", 399.99, "Google"), // Використовує pixel7.jpg
-
-                // Інші нові телефони (Вам потрібно буде додати відповідні фото в папку assets, або вони не відобразяться)
-                new Smartphone("Xiaomi 13 Ultra", "xiaomi13u.jpg", "Фотофлагман з великим сенсором", 1299.99, "Xiaomi"),
-                new Smartphone("OnePlus 12", "oneplus12.jpg", "Висока продуктивність та швидка зарядка", 949.99, "OnePlus"),
-                new Smartphone("Galaxy Z Flip 5", "zflip5.jpg", "Стильний складаний смартфон", 999.99, "Samsung"),
-                new Smartphone("iPhone 14 Pro", "iphone14pro.jpg", "Професійна серія минулого року", 899.99, "Apple"),
-                new Smartphone("Sony Xperia 1 V", "xperia1v.jpg", "Кінематографічний досвід у кишені", 1199.99, "Sony"),
-                new Smartphone("ASUS ROG Phone 7", "rog7.jpg", "Ігровий смартфон для максимальних розваг", 999.99, "ASUS"),
-                new Smartphone("Motorola Edge 40 Pro", "motoedge40.jpg", "Елегантний дизайн та швидка зарядка", 799.99, "Motorola")
-        );
-
         response.setContentType("application/json");
         response.setCharacterEncoding("UTF-8");
-        response.getWriter().write(new Gson().toJson(smartphones));
+
+        String pathInfo = request.getPathInfo(); // Отримуємо частину URL після /api/smartphones
+
+        if (pathInfo == null || pathInfo.equals("/")) {
+            // Запит на отримання всіх смартфонів: /api/smartphones
+            List<Smartphone> smartphones = smartphoneService.getAllSmartphones(); // Використання методу сервісу
+            response.getWriter().write(gson.toJson(smartphones));
+        } else {
+            // Запит на отримання смартфона за ID: /api/smartphones/{id}
+            String id = pathInfo.substring(1); // Видаляємо початковий слеш
+            Optional<Smartphone> smartphone = smartphoneService.getSmartphoneById(id); // Використання методу сервісу
+
+            if (smartphone.isPresent()) {
+                response.getWriter().write(gson.toJson(smartphone.get()));
+            } else {
+                response.setStatus(HttpServletResponse.SC_NOT_FOUND); // 404 Not Found
+                response.getWriter().write("{\"error\": \"Smartphone not found\"}");
+            }
+        }
+    }
+
+    // Обробка POST-запитів (додавання нового смартфона)
+    @Override
+    protected void doPost(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+
+        try (BufferedReader reader = request.getReader()) {
+            Smartphone newSmartphone = gson.fromJson(reader, Smartphone.class);
+            smartphoneService.addSmartphone(newSmartphone); // Використання методу сервісу
+            response.setStatus(HttpServletResponse.SC_CREATED); // 201 Created
+            response.getWriter().write(gson.toJson(newSmartphone)); // Повертаємо доданий об'єкт
+        } catch (Exception e) {
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST); // 400 Bad Request
+            response.getWriter().write("{\"error\": \"Invalid request body or data: " + e.getMessage() + "\"}");
+            e.printStackTrace(); // Для налагодження
+        }
+    }
+
+    // Обробка PUT-запитів (оновлення існуючого смартфона)
+    @Override
+    protected void doPut(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+
+        String pathInfo = request.getPathInfo();
+        if (pathInfo == null || pathInfo.equals("/")) {
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            response.getWriter().write("{\"error\": \"Smartphone ID is required for update\"}");
+            return;
+        }
+        String idFromPath = pathInfo.substring(1); // ID з URL
+
+        try (BufferedReader reader = request.getReader()) {
+            Smartphone updatedSmartphone = gson.fromJson(reader, Smartphone.class);
+
+            // Перевіряємо, чи ID в шляху відповідає ID в тілі запиту
+            if (updatedSmartphone.getId() == null || !updatedSmartphone.getId().equals(idFromPath)) {
+                response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                response.getWriter().write("{\"error\": \"ID in path and body do not match or body ID is missing\"}");
+                return;
+            }
+
+            boolean success = smartphoneService.updateSmartphone(updatedSmartphone); // Використання методу сервісу
+            if (success) {
+                response.setStatus(HttpServletResponse.SC_OK); // 200 OK
+                response.getWriter().write(gson.toJson(updatedSmartphone));
+            } else {
+                response.setStatus(HttpServletResponse.SC_NOT_FOUND); // 404 Not Found
+                response.getWriter().write("{\"error\": \"Smartphone with ID " + idFromPath + " not found\"}");
+            }
+        } catch (Exception e) {
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            response.getWriter().write("{\"error\": \"Invalid request body or data: " + e.getMessage() + "\"}");
+            e.printStackTrace();
+        }
+    }
+
+    // Обробка DELETE-запитів (видалення смартфона)
+    @Override
+    protected void doDelete(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+
+        String pathInfo = request.getPathInfo();
+        if (pathInfo == null || pathInfo.equals("/")) {
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            response.getWriter().write("{\"error\": \"Smartphone ID is required for delete\"}");
+            return;
+        }
+        String id = pathInfo.substring(1); // ID з URL
+
+        boolean success = smartphoneService.deleteSmartphone(id); // Використання методу сервісу
+        if (success) {
+            response.setStatus(HttpServletResponse.SC_NO_CONTENT); // 204 No Content
+        } else {
+            response.setStatus(HttpServletResponse.SC_NOT_FOUND); // 404 Not Found
+            response.getWriter().write("{\"error\": \"Smartphone with ID " + id + " not found\"}");
+        }
     }
 }
